@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  messages ChatMessage[]
+  bundles  SubscriptionBundle[]
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  question  String
+  answer    String
+  tokens    Int
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id])
+}
+
+model SubscriptionBundle {
+  id                String   @id @default(uuid())
+  userId            String
+  tier              String
+  maxMessages       Int?
+  remainingMessages Int?
+  price             Float
+  autoRenew         Boolean
+  active            Boolean
+  startDate         DateTime
+  endDate           DateTime
+  renewalDate       DateTime
+  createdAt         DateTime @default(now())
+  User              User     @relation(fields: [userId], references: [id])
+}
