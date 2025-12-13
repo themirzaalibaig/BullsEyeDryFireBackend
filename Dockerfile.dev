@@ -1,0 +1,30 @@
+# Development Dockerfile with Watch Mode
+FROM node:20-alpine
+
+# Install pnpm and openssl for Prisma
+RUN corepack enable && corepack prepare pnpm@10.15.0 --activate && \
+    apk add --no-cache openssl
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install all dependencies (including dev)
+# Skip scripts since Prisma Client will be generated after copying source code
+RUN pnpm install --frozen-lockfile --ignore-scripts
+
+# Copy source code
+COPY . .
+
+# Generate Prisma Client
+# Set dummy DATABASE_URL for build (Prisma Client generation doesn't need a real connection)
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy?schema=public"
+RUN pnpm prisma generate
+
+# Expose port
+EXPOSE 3000
+
+# Start in watch mode
+CMD ["pnpm", "dev"]
+
