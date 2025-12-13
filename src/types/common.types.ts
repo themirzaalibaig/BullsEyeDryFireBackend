@@ -20,7 +20,7 @@ export interface FullAuditType extends BaseType {
 }
 
 export interface IdentifiableType {
-  _id: string;
+  id: string;
 }
 
 export interface VersionType {

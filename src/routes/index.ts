@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { Res } from '@/utils';
-import { env } from '@/config/env.config';
+import { env } from '@/config';
 
 export const router = Router();
 
