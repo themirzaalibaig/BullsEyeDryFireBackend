@@ -1,0 +1,488 @@
+---
+alwaysApply: true
+---
+
+# BullsEye Dry Fire Backend - Cursor Rules
+
+## Project Overview
+This is a TypeScript/Express backend application using Clean Architecture (Domain-Driven Design) principles with Prisma ORM, PostgreSQL, and Redis.
+
+## Architecture & Structure
+
+### Clean Architecture / DDD Pattern
+- Features are organized in `src/features/{feature-name}/` directories
+- Each feature follows this structure:
+  - `controller/` - Request handlers (Express route handlers)
+  - `service/` - Business logic layer
+  - `repository/` - Data access layer (Prisma operations)
+  - `route/` - Express router definitions
+  - `dto/` - Data Transfer Objects (response transformers)
+  - `validation/` - Zod validation schemas
+  - `type/` - TypeScript type definitions
+
+### Directory Structure
+```
+src/
+├── config/          # Configuration files (env, prisma, redis, etc.)
+├── constants/       # Application constants
+├── features/        # Feature modules (DDD)
+├── middlewares/     # Express middlewares
+├── prisma/          # Prisma schema and migrations
+├── providers/       # Service providers (storage, etc.)
+├── routes/          # Main router (registers feature routes)
+├── types/           # Global TypeScript types
+├── utils/           # Utility functions
+└── validations/     # Shared validation schemas
+```
+
+## Code Style & Conventions
+
+### TypeScript
+- Use strict TypeScript (`strict: true`)
+- Always use explicit types for function parameters and return types
+- Use interfaces for object shapes, types for unions/intersections
+- Prefer `const` over `let`, avoid `var`
+- Use async/await instead of promises chains
+- Use path aliases: `@/` for `src/`, `@prisma/client` for generated Prisma client
+
+### Naming Conventions
+- **Files**: kebab-case (e.g., `user-profile.controller.ts`)
+- **Classes**: PascalCase (e.g., `UserController`, `UserService`)
+- **Functions/Variables**: camelCase (e.g., `getUserById`, `userId`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_FILE_SIZE`)
+- **Types/Interfaces**: PascalCase with descriptive suffix (e.g., `UserType`, `CreateUserInput`)
+- **Enums**: PascalCase (e.g., `UserRole`, `SubscriptionTier`)
+
+### Imports
+- Use path aliases: `import { Res } from '@/utils'` not `import { Res } from '../../utils'`
+- Group imports: external packages → internal modules → types
+- Use named exports, avoid default exports for utilities
+- Example:
+```typescript
+import { Router, Request, Response } from 'express';
+import { Res, catchAsync, AppError } from '@/utils';
+import { validate } from '@/middlewares';
+import { CreateUserInput } from '@/features/user/validation/user.validations';
+import type { TypedRequest } from '@/types';
+```
+
+## Prisma Usage
+
+### Database Operations
+- Always use Prisma Client from `@/config`: `import { prisma } from '@/config'`
+- Use Prisma delegates (e.g., `prisma.user`, `prisma.chatMessage`) for operations
+- Use `createCachedRepository()` from `@/utils/repository.util` for cached CRUD operations
+- Always handle Prisma errors appropriately (use try-catch or AppError)
+
+### Repository Pattern
+```typescript
+import { prisma } from '@/config';
+import { createCachedRepository } from '@/utils';
+
+const userRepository = createCachedRepository(prisma.user, 'user');
+const user = await userRepository.findById(id);
+```
+
+### Prisma Queries
+- Use `findUnique` for unique fields (id, email, etc.)
+- Use `findFirst` for non-unique queries
+- Use `findMany` with proper `where`, `include`, `select`, `orderBy`
+- Always use `include` or `select` to avoid over-fetching
+- Use transactions for multiple related operations
+
+### Migrations
+- Always create migrations: `pnpm prisma:migrate`
+- Never edit migration files manually after creation
+- Use descriptive migration names
+
+## Validation
+
+### Zod Schemas
+- All input validation uses Zod
+- Place schemas in `validation/{feature}.validations.ts`
+- Use `commonSchemas` from `@/validations` for reusable schemas
+- Export input types: `export type CreateUserInput = z.infer<typeof createUserSchema>`
+- Use `querySchema` from `@/validations` for list endpoints
+
+### Validation Middleware
+- Use `validate()` middleware from `@/middlewares`
+- Format: `validate(z.object({ body: createSchema, query: listSchema, params: idSchema }))`
+- Always validate request body, query params, and route params separately
+
+Example:
+```typescript
+router.post(
+  '/',
+  validate(z.object({ body: createUserSchema })),
+  UserController.create
+);
+```
+
+## Error Handling
+
+### AppError Class
+- Use `AppError` from `@/utils/error.util` for application errors
+- Use static methods: `AppError.notFound()`, `AppError.badRequest()`, etc.
+- Always provide meaningful error messages
+- Include validation errors when applicable
+
+### Error Responses
+- Use `Res` utility from `@/utils/response.util` for all responses
+- Methods: `Res.success()`, `Res.error()`, `Res.notFound()`, `Res.validationError()`, etc.
+- Always use `catchAsync` wrapper for async route handlers
+
+Example:
+```typescript
+static findById = catchAsync(async (req: TypedRequest<UserIdInput>, res: Response) => {
+  const user = await UserService.findById(req.params.id);
+  if (!user) throw AppError.notFound('User not found');
+  return Res.success(res, { user });
+});
+```
+
+## Controllers
+
+### Structure
+- Controllers are classes with static methods
+- Use `catchAsync` wrapper for all async methods
+- Use `TypedRequest` for type-safe requests
+- Always return responses using `Res` utility
+- Keep controllers thin - delegate business logic to services
+
+### Request Types
+```typescript
+TypedRequest<QueryType, BodyType, ParamsType>
+```
+
+Example:
+```typescript
+static create = catchAsync(
+  async (req: TypedRequest<unknown, CreateUserInput>, res: Response) => {
+    const user = await UserService.create(req.body);
+    return Res.created(res, { user }, 'User created successfully');
+  }
+);
+```
+
+## Services
+
+### Business Logic
+- Services contain all business logic
+- Services call repositories for data access
+- Services use DTOs to transform data
+- Services throw `AppError` for business rule violations
+- Keep services pure - no Express dependencies
+
+### Service Methods
+- Use descriptive method names: `create`, `findById`, `update`, `delete`, `list`
+- Always validate business rules before database operations
+- Use transactions for complex operations
+- Return DTOs, not raw database entities
+
+## Repositories
+
+### Data Access
+- Repositories handle all Prisma operations
+- Use `createCachedRepository()` for standard CRUD with caching
+- For custom queries, use Prisma directly with proper error handling
+- Always use typed inputs from validation schemas
+
+### Repository Methods
+- Methods should match Prisma delegate methods
+- Use proper TypeScript types for parameters and returns
+- Handle Prisma errors and convert to AppError when needed
+
+## Routes
+
+### Route Definition
+- Define routes in `route/{feature}s.routes.ts`
+- Export router as `{feature}Router` (camelCase)
+- Use descriptive route comments with JSDoc
+- Apply validation middleware before controllers
+- Use `idempotency` middleware for POST/PUT operations when needed
+
+### Route Registration
+- Register feature routes in `src/routes/index.ts`
+- Use feature prefix: `router.use('/users', userRouter)`
+- Follow RESTful conventions: GET, POST, PUT, DELETE
+
+## Response Format
+
+### Success Response
+```typescript
+{
+  success: true,
+  message: string,
+  data: T,
+  meta?: { version, timestamp, pagination? },
+  timestamp: string
+}
+```
+
+### Error Response
+```typescript
+{
+  success: false,
+  message: string,
+  data: null,
+  errors?: ValidationError[],
+  meta?: ResponseMeta,
+  timestamp: string
+}
+```
+
+## Type Definitions
+
+### Common Types
+- Use base types from `@/types/common.types`:
+  - `IdentifiableType` - has `id: string`
+  - `TimestampType` - has `createdAt`, `updatedAt`
+  - `ActiveType` - has `isActive?: boolean`
+  - `BaseType` - combines all base types
+
+### Feature Types
+- Define types in `type/{feature}.type.ts`
+- Extend base types: `export interface UserType extends IdentifiableType, TimestampType, ActiveType`
+- Use descriptive names: `CreateUserInput`, `UpdateUserInput`, `UserType`
+
+## DTOs (Data Transfer Objects)
+
+### Response Transformation
+- DTOs transform database entities to API responses
+- Place in `dto/{feature}.dto.ts`
+- Use static methods: `toResponse()`, `toListResponse()`, `toNullableResponse()`
+- Always use DTOs in service layer, not raw entities
+
+Example:
+```typescript
+export class UserDto {
+  static toResponse(data: UserType) {
+    return { ...data, id: data.id, createdAt: data.createdAt };
+  }
+  static toListResponse(data: UserType[]) {
+    return data.map(item => this.toResponse(item));
+  }
+}
+```
+
+## Caching
+
+### Redis Caching
+- Use `createCachedRepository()` for automatic caching
+- Cache keys use entity name and ID: `entity:id`
+- List caches are versioned and invalidated on mutations
+- TTL: 20 minutes for single records, 15 minutes for lists
+
+### Cache Utilities
+- `cacheGet<T>(key)` - Get cached value
+- `cacheSet(key, value, ttlSeconds)` - Set cached value
+- `cacheDel(key)` - Delete cached value
+- `invalidateEntityListCache(entity)` - Invalidate all list caches for entity
+
+## Feature Generation
+
+### Creating New Features
+- Use `pnpm generate:feature <feature-name>` command
+- Feature name must be kebab-case (e.g., `user-profile`, `chat`)
+- Script generates complete feature structure with templates
+- Update routes in `src/routes/index.ts` after generation
+
+### Feature Template
+- All features follow the same structure
+- Controllers use `catchAsync` wrapper
+- Services use repositories and DTOs
+- Routes use validation middleware
+- Types extend base types from `@/types`
+
+## Environment Variables
+
+### Configuration
+- All env vars are defined in `src/config/env.config.ts`
+- Use `env` object from `@/config` to access variables
+- Never access `process.env` directly in application code
+- Always provide defaults for optional variables
+
+## Logging
+
+### Pino Logger
+- Use `logger` from `@/utils/logger.util`
+- Log levels: `logger.info()`, `logger.error()`, `logger.warn()`, `logger.debug()`
+- Include context in log objects: `logger.info({ userId, action }, 'User action')`
+- Log errors with stack traces: `logger.error({ error: err.message, stack: err.stack })`
+
+## Testing
+
+### Test Structure
+- Place tests next to source files: `*.test.ts` or `*.spec.ts`
+- Use descriptive test names
+- Test business logic in services, not controllers
+- Mock repositories in service tests
+
+## Code Quality
+
+### Linting & Formatting
+- Use ESLint with TypeScript rules
+- Use Prettier for code formatting
+- Run `pnpm lint` before committing
+- Run `pnpm format` to auto-format code
+
+### Best Practices
+- Keep functions small and focused (single responsibility)
+- Avoid deep nesting (max 3 levels)
+- Use early returns to reduce nesting
+- Extract magic numbers/strings to constants
+- Use meaningful variable names
+- Add JSDoc comments for complex functions
+- Handle all errors explicitly
+- Use TypeScript strict mode features
+
+## Docker & Deployment
+
+### Docker Commands
+- Development: `pnpm docker:dev` (with watch mode)
+- Production: `pnpm docker:prod`
+- Use environment variables from `.env` file
+- Port configuration: Use `PORT` env var (default: 3000)
+
+### Database Migrations
+- Run migrations in production: `pnpm prod:prisma:migrate:deploy`
+- Never run `prisma migrate dev` in production
+- Always backup database before migrations
+
+## Git & Version Control
+
+### Commit Messages
+- Use conventional commits format
+- Prefix: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`
+- Be descriptive about what changed
+
+### Branching
+- `main` - Production-ready code
+- `develop` - Development branch
+- Feature branches: `feature/feature-name`
+- Bug fixes: `fix/bug-description`
+
+## Performance
+
+### Database Queries
+- Always use `select` or `include` to fetch only needed fields
+- Use indexes for frequently queried fields
+- Avoid N+1 queries - use `include` for relations
+- Use pagination for list endpoints (default limit: 20, max: 100)
+
+### Caching Strategy
+- Cache frequently accessed data
+- Invalidate cache on mutations
+- Use appropriate TTL values
+- Monitor cache hit rates
+
+## Security
+
+### Authentication & Authorization
+- Use JWT tokens for authentication
+- Validate tokens in `auth.middleware`
+- Check permissions in service layer
+- Never expose sensitive data in responses
+
+### Input Validation
+- Always validate all user inputs
+- Use Zod schemas for type-safe validation
+- Sanitize inputs before database operations
+- Use parameterized queries (Prisma handles this)
+
+### Rate Limiting
+- Apply rate limiting middleware to all routes
+- Configure limits in `rateLimit.middleware.ts`
+- Use Redis for distributed rate limiting
+
+## Common Patterns
+
+### Async Handler
+```typescript
+import { catchAsync } from '@/utils';
+
+export const myHandler = catchAsync(async (req, res) => {
+  // Handler logic
+});
+```
+
+### Error Handling
+```typescript
+if (!entity) throw AppError.notFound('Entity not found');
+```
+
+### Response Format
+```typescript
+return Res.success(res, { data }, 'Success message');
+return Res.created(res, { data }, 'Created successfully');
+return Res.notFound(res, 'Resource not found');
+```
+
+### Validation
+```typescript
+router.post(
+  '/',
+  validate(z.object({ body: createSchema })),
+  Controller.create
+);
+```
+
+## When Adding New Code
+
+1. **Follow the architecture**: Controller → Service → Repository → Database
+2. **Use existing utilities**: Don't reinvent the wheel, use `@/utils` functions
+3. **Type everything**: Use TypeScript types, avoid `any`
+4. **Validate inputs**: Always validate with Zod schemas
+5. **Handle errors**: Use AppError and proper error responses
+6. **Use DTOs**: Transform data in service layer
+7. **Cache appropriately**: Use cached repositories for frequently accessed data
+8. **Log important events**: Use logger for debugging and monitoring
+9. **Write clean code**: Follow naming conventions and code style
+10. **Test your code**: Write tests for business logic
+
+## Code Examples
+
+### Complete Feature Example
+```typescript
+// controller/user.controller.ts
+import { Response } from 'express';
+import { Res, catchAsync, AppError } from '@/utils';
+import { UserService } from '@/features/user/service/user.service';
+import { CreateUserInput } from '@/features/user/validation/user.validations';
+import { TypedRequest } from '@/types';
+
+export class UserController {
+  static create = catchAsync(
+    async (req: TypedRequest<unknown, CreateUserInput>, res: Response) => {
+      const user = await UserService.create(req.body);
+      return Res.created(res, { user }, 'User created successfully');
+    }
+  );
+}
+
+// service/user.service.ts
+import { UserRepository } from '@/features/user/repository/user.repository';
+import { UserDto } from '@/features/user/dto/user.dto';
+import { AppError } from '@/utils';
+
+export class UserService {
+  static async create(payload: CreateUserInput) {
+    const user = await UserRepository.create(payload);
+    return UserDto.toResponse(user);
+  }
+}
+
+// repository/user.repository.ts
+import { prisma } from '@/config';
+import { createCachedRepository } from '@/utils';
+
+export const UserRepository = createCachedRepository(prisma.user, 'user');
+```
+
+## Important Notes
+
+- **Never commit**: `.env` files, `node_modules`, `dist`, generated files
+- **Always use**: Path aliases (`@/`), typed requests, error handling
+- **Avoid**: Direct database access in controllers, `any` types, console.log
+- **Prefer**: Services for business logic, repositories for data access, DTOs for responses
+
