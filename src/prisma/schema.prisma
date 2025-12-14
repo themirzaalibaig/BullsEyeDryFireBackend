@@ -13,37 +13,30 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  USER
+  ADMIN
+}
+enum SignupMethod{
+  EMAIL
+  GOOGLE
+}
+
 model User {
   id        String   @id @default(uuid())
+  username  String
   email     String   @unique
+  isEmailVerified Boolean @default(false)
+  phone String? @unique
+  isPhoneVerified Boolean @default(false)
+  password String
+  role Role @default(USER)
+  refreshToken String?
+  platformId String?
+  signupMethod SignupMethod @default(EMAIL)
+  isActive Boolean @default(true)
+  isDeleted Boolean @default(false)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
-
-  messages ChatMessage[]
-  bundles  SubscriptionBundle[]
-}
-
-model ChatMessage {
-  id        String   @id @default(uuid())
-  userId    String
-  question  String
-  answer    String
-  tokens    Int
-  createdAt DateTime @default(now())
-  User      User     @relation(fields: [userId], references: [id])
-}
-
-model SubscriptionBundle {
-  id                String   @id @default(uuid())
-  userId            String
-  tier              String
-  maxMessages       Int?
-  remainingMessages Int?
-  price             Float
-  autoRenew         Boolean
-  active            Boolean
-  startDate         DateTime
-  endDate           DateTime
-  renewalDate       DateTime
-  createdAt         DateTime @default(now())
-  User              User     @relation(fields: [userId], references: [id])
+  updatedAt DateTime @updatedAt
 }
