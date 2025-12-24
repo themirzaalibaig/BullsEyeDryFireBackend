@@ -49,13 +49,13 @@ export class AuthService {
       ]);
     }
 
-    // // Check phone if provided
-    // if (payload.phone) {
-    //   const existingPhone = await AuthRepository.findByPhone(payload.phone);
-    //   if (existingPhone) {
-    //     throw AppError.conflict('Phone number already exists');
-    //   }
-    // }
+    // Check phone if provided
+    if (payload.phone) {
+      const existingPhone = await AuthRepository.findByPhone(payload.phone);
+      if (existingPhone) {
+        throw AppError.conflict('Phone number already exists');
+      }
+    }
 
     // Generate OTP
     const otpCode = this.generateOtp();
