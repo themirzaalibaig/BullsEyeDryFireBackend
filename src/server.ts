@@ -4,7 +4,7 @@ import cors from 'cors';
 import http from 'http';
 import { env, initializeFirebase } from '@/config';
 import { router } from '@/routes';
-import { logger, Res } from '@/utils';
+import { logger, Res, initEmailWorker } from '@/utils';
 import { apiRateLimiter, globalErrorHandler } from '@/middlewares';
 
 const app = express();
@@ -35,6 +35,17 @@ const start = async (): Promise<void> => {
     initializeFirebase();
   } catch (error) {
     logger.warn({ error }, 'Firebase initialization failed. Google auth will be disabled.');
+  }
+
+  // Initialize Email Worker
+  try {
+    initEmailWorker();
+    logger.info('Email queue worker initialized');
+  } catch (error) {
+    logger.warn(
+      { error },
+      'Email worker initialization failed. Email queue will not process jobs.',
+    );
   }
 
   const server = http.createServer(app);

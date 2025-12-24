@@ -22,11 +22,10 @@ import {
   comparePassword,
   generateTokens,
   verifyRefreshToken,
-  sendEmail,
-  getVerificationEmailTemplate,
-  getForgotPasswordEmailTemplate,
   logger,
   verifyFirebaseToken,
+  queueVerificationEmail,
+  queueForgotPasswordEmail,
 } from '@/utils';
 import { HttpStatusCode } from '@/types';
 
@@ -71,14 +70,13 @@ export class AuthService {
     // Cache OTP
     await AuthRepository.setOtpCache(payload.email, 'emailVerification', otpCode);
 
-    // Send verification email
+    // Queue verification email
     try {
-      const emailHtml = getVerificationEmailTemplate(otpCode);
-      await sendEmail(payload.email, 'Verify Your Email Address', emailHtml);
-      logger.info({ email: payload.email }, 'Verification email sent');
+      await queueVerificationEmail(payload.email, otpCode);
+      logger.info({ email: payload.email }, 'Verification email queued');
     } catch (error) {
-      logger.error({ error, email: payload.email }, 'Failed to send verification email');
-      // Don't fail signup if email fails
+      logger.error({ error, email: payload.email }, 'Failed to queue verification email');
+      // Don't fail signup if email queue fails
     }
 
     return AuthDto.toSignupResponse(user);
@@ -209,19 +207,17 @@ export class AuthService {
     // Cache OTP
     await AuthRepository.setOtpCache(email, type, otpCode);
 
-    // Send email
+    // Queue email
     try {
-      const emailHtml =
-        type === 'forgotPassword'
-          ? getForgotPasswordEmailTemplate(otpCode)
-          : getVerificationEmailTemplate(otpCode);
-      const subject =
-        type === 'forgotPassword' ? 'Reset Your Password' : 'Verify Your Email Address';
-      await sendEmail(email, subject, emailHtml);
-      logger.info({ email, type }, 'OTP email sent');
+      if (type === 'forgotPassword') {
+        await queueForgotPasswordEmail(email, otpCode);
+      } else {
+        await queueVerificationEmail(email, otpCode);
+      }
+      logger.info({ email, type }, 'OTP email queued');
     } catch (error) {
-      logger.error({ error, email, type }, 'Failed to send OTP email');
-      throw AppError.badRequest('Failed to send OTP email');
+      logger.error({ error, email, type }, 'Failed to queue OTP email');
+      throw AppError.badRequest('Failed to queue OTP email');
     }
 
     return { email };
@@ -248,14 +244,13 @@ export class AuthService {
     // Cache OTP
     await AuthRepository.setOtpCache(email, 'forgotPassword', otpCode);
 
-    // Send email
+    // Queue email
     try {
-      const emailHtml = getForgotPasswordEmailTemplate(otpCode);
-      await sendEmail(email, 'Reset Your Password', emailHtml);
-      logger.info({ email }, 'Password reset email sent');
+      await queueForgotPasswordEmail(email, otpCode);
+      logger.info({ email }, 'Password reset email queued');
     } catch (error) {
-      logger.error({ error, email }, 'Failed to send password reset email');
-      throw AppError.badRequest('Failed to send password reset email');
+      logger.error({ error, email }, 'Failed to queue password reset email');
+      throw AppError.badRequest('Failed to queue password reset email');
     }
 
     return { email };
@@ -615,15 +610,14 @@ export class AuthService {
     await AuthRepository.setOtpCache(email, 'emailVerification', otpCode);
 
     try {
-      const emailHtml = getVerificationEmailTemplate(otpCode);
-      await sendEmail(email, 'Verify Your Email Address', emailHtml);
+      await queueVerificationEmail(email, otpCode);
       logger.info(
         { email, userId: finalUser.id },
-        'Verification email sent after guest conversion',
+        'Verification email queued after guest conversion',
       );
     } catch (error) {
-      logger.error({ error, email }, 'Failed to send verification email');
-      // Don't fail conversion if email fails
+      logger.error({ error, email }, 'Failed to queue verification email');
+      // Don't fail conversion if email queue fails
     }
 
     logger.info({ userId: finalUser.id, email }, 'Guest converted to registered user');
