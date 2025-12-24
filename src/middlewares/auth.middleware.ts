@@ -1,115 +1,188 @@
-// import { NextFunction, Response, RequestHandler } from 'express';
-// import { AppError, verifyToken, logger, catchAsync } from '@/utils';
-// import { UserModel } from '@/features/auth/model/auth.model';
-// import { TypedRequest } from '@/types';
-// import { UserRole } from '@/enums';
-// import { JwtPayload } from 'jsonwebtoken';
+import { NextFunction, Response, RequestHandler } from 'express';
+import { AppError, verifyToken, logger, catchAsync, cacheGet, cacheSet, makeKey } from '@/utils';
+import { AuthRepository } from '@/features/auth/repository/auth.repository';
+import { TypedRequest } from '@/types';
+import { JwtPayload } from 'jsonwebtoken';
+import { Role } from '@prisma/client';
+import { AuthType } from '@/features/auth';
 
-// export interface AuthenticatedRequest<Q = unknown, B = unknown, P = unknown>
-//   extends TypedRequest<Q, B, P> {
-//   user?: {
-//     _id: string;
-//     id: string;
-//     username: string;
-//     email: string;
-//     role: string;
-//     avatar?: string;
-//     fiqh?: string;
-//     isVerified: boolean;
-//   };
-// }
+export interface AuthenticatedRequest<Q = unknown, B = unknown, P = unknown> extends TypedRequest<
+  Q,
+  B,
+  P
+> {
+  user: AuthType;
+}
 
-// export const authenticate: RequestHandler = catchAsync(
-//   async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-//     const accessToken = req.cookies?.accessToken;
+// Cache TTL for user data in middleware
+const USER_MIDDLEWARE_CACHE_TTL = 5 * 60; // 5 minutes
 
-//     if (!accessToken) {
-//       throw AppError.unauthorized('Authentication required. Please login.');
-//     }
+/**
+ * Authentication middleware - verifies JWT token and attaches user to request
+ * Uses caching to reduce database queries
+ */
+export const authenticate: RequestHandler = catchAsync(
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    // Get token from Authorization header or cookies
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.substring(7)
+      : req.cookies?.accessToken;
 
-//     let decoded: JwtPayload;
-//     try {
-//       decoded = verifyToken(accessToken) as JwtPayload;
-//     } catch (error: any) {
-//       logger.warn({ error: error.message }, 'Token verification failed');
-//       throw AppError.unauthorized('Invalid or expired token. Please login again.');
-//     }
-//     const userId = decoded.id || decoded._id;
-//     if (!userId) {
-//       throw AppError.unauthorized('Invalid token payload.');
-//     }
+    if (!token) {
+      throw AppError.unauthorized('Authentication required. Please login.');
+    }
 
-//     const user = await UserModel.findById(userId).select('-password -token -code');
-//     if (!user) {
-//       throw AppError.unauthorized('User not found. Please login again.');
-//     }
+    // Check if token is blacklisted
+    const isBlacklisted = await AuthRepository.isTokenBlacklisted(token);
+    if (isBlacklisted) {
+      throw AppError.unauthorized('Token has been revoked. Please login again.');
+    }
 
-//     if (!user.isVerified) {
-//       throw AppError.unauthorized('Please verify your email before accessing this resource.');
-//     }
+    // Verify token
+    let decoded: JwtPayload;
+    try {
+      decoded = verifyToken(token) as JwtPayload;
+    } catch (error: any) {
+      logger.warn({ error: error.message }, 'Token verification failed');
+      throw AppError.unauthorized('Invalid or expired token. Please login again.');
+    }
 
-//     req.user = {
-//       id: userId,
-//       _id: user._id?.toString?.() ?? '',
-//       username: user.username,
-//       email: user.email,
-//       role: user.role,
-//       avatar: user.avatar,
-//       fiqh: user.fiqh,
-//       isVerified: user.isVerified,
-//     };
+    const userId = decoded.id;
+    if (!userId) {
+      throw AppError.unauthorized('Invalid token payload.');
+    }
 
-//     logger.debug({ userId: user._id, email: user.email }, 'User authenticated');
-//     next();
-//   },
-// );
+    // Try to get user from cache first
+    const cacheKey = makeKey('auth', 'user', userId);
+    let cachedUser = await cacheGet<any>(cacheKey);
 
-// export const optionalAuth: RequestHandler = catchAsync(
-//   async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-//     const accessToken = req.cookies?.accessToken;
+    if (!cachedUser) {
+      // Get user from database
+      const user = await AuthRepository.findById(userId);
+      if (!user) {
+        throw AppError.unauthorized('User not found. Please login again.');
+      }
 
-//     if (!accessToken) {
-//       return next();
-//     }
+      // Check if user is active and not deleted
+      if (!user.isActive || user.isDeleted) {
+        throw AppError.forbidden('Account is deactivated or deleted.');
+      }
 
-//     try {
-//       const decoded = verifyToken(accessToken) as JwtPayload;
-//       const userId = decoded.id || decoded._id;
+      // Check email verification (skip for guest users)
+      if (!user.isEmailVerified && user.userType !== 'GUEST') {
+        throw AppError.unauthorized('Please verify your email before accessing this resource.');
+      }
 
-//       if (userId) {
-//         const user = await UserModel.findById(userId).select('-password -token -code');
-//         if (user && user.isVerified) {
-//           req.user = {
-//             id: userId,
-//             _id: user._id?.toString?.() ?? '',
-//             username: user.username,
-//             email: user.email,
-//             role: user.role,
-//             avatar: user.avatar,
-//             fiqh: user.fiqh,
-//             isVerified: user.isVerified,
-//           };
-//         }
-//       }
-//     } catch (error) {
-//       logger.debug({ error }, 'Optional auth failed - continuing without user');
-//     }
+      // Cache user data (exclude sensitive fields)
+      cachedUser = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        userType: user.userType,
+        isEmailVerified: user.isEmailVerified,
+        isActive: user.isActive,
+      };
+      await cacheSet(cacheKey, cachedUser, USER_MIDDLEWARE_CACHE_TTL);
+    }
 
-//     next();
-//   },
-// );
+    // Attach user to request
+    req.user = cachedUser;
 
-// export const authorize = (...allowedRoles: UserRole[]): RequestHandler =>
-//   catchAsync(
-//     async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-//       if (!req.user) {
-//         throw AppError.unauthorized('Authentication required');
-//       }
+    logger.debug({ userId: cachedUser.id, email: cachedUser.email }, 'User authenticated');
+    next();
+  },
+);
 
-//       if (!allowedRoles.includes(req.user.role as UserRole)) {
-//         throw AppError.forbidden(`Access denied. Required roles: ${allowedRoles.join(', ')}`);
-//       }
+/**
+ * Optional authentication middleware - attaches user if token is valid, but doesn't require it
+ */
+export const optionalAuth: RequestHandler = catchAsync(
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.substring(7)
+      : req.cookies?.accessToken;
 
-//       next();
-//     },
-//   );
+    if (!token) {
+      return next();
+    }
+
+    try {
+      // Check if token is blacklisted
+      const isBlacklisted = await AuthRepository.isTokenBlacklisted(token);
+      if (isBlacklisted) {
+        return next();
+      }
+
+      const decoded = verifyToken(token) as JwtPayload;
+      const userId = decoded.id;
+
+      if (userId) {
+        // Try cache first
+        const cacheKey = makeKey('auth', 'user', userId);
+        let cachedUser = await cacheGet<any>(cacheKey);
+
+        if (!cachedUser) {
+          const user = await AuthRepository.findById(userId);
+          if (user && user.isActive && !user.isDeleted && user.isEmailVerified) {
+            cachedUser = {
+              id: user.id,
+              username: user.username,
+              email: user.email,
+              role: user.role,
+              userType: user.userType,
+              isEmailVerified: user.isEmailVerified,
+              isActive: user.isActive,
+            };
+            await cacheSet(cacheKey, cachedUser, USER_MIDDLEWARE_CACHE_TTL);
+          }
+        }
+
+        if (cachedUser) {
+          req.user = cachedUser;
+        }
+      }
+    } catch (error) {
+      logger.debug({ error }, 'Optional auth failed - continuing without user');
+    }
+
+    next();
+  },
+);
+
+/**
+ * Authorization middleware - checks if user has required role(s)
+ */
+export const authorize = (...allowedRoles: Role[]): RequestHandler =>
+  catchAsync(
+    async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+      if (!req.user) {
+        throw AppError.unauthorized('Authentication required');
+      }
+
+      if (!allowedRoles.includes(req.user.role)) {
+        throw AppError.forbidden(`Access denied. Required roles: ${allowedRoles.join(', ')}`);
+      }
+
+      next();
+    },
+  );
+
+/**
+ * Middleware to require email verification
+ */
+export const requireEmailVerification: RequestHandler = catchAsync(
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.user) {
+      throw AppError.unauthorized('Authentication required');
+    }
+
+    if (!req.user.isEmailVerified) {
+      throw AppError.forbidden('Please verify your email before accessing this resource.');
+    }
+
+    next();
+  },
+);

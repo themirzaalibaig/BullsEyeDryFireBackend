@@ -45,6 +45,11 @@ export const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
   OPENAI_API_BASE_URL: process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1',
   OPENAI_API_MODEL: process.env.OPENAI_API_MODEL || 'gpt-5',
+  // Firebase Configuration
+  FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || '',
+  FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL || '',
+  FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY || '',
+  FIREBASE_WEB_API_KEY: process.env.FIREBASE_WEB_API_KEY || '',
   get BASE_API_PATH(): string {
     return this.API_PREFIX;
   },

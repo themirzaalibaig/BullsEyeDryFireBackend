@@ -13,30 +13,223 @@ datasource db {
   provider = "postgresql"
 }
 
+// ============================================
+// Enums
+// ============================================
+
 enum Role {
   USER
   ADMIN
 }
-enum SignupMethod{
+
+enum SignupMethod {
   EMAIL
   GOOGLE
 }
 
+enum UserType {
+  GUEST
+  REGISTERED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAUSED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELED
+}
+
+enum PlanInterval {
+  MONTHLY
+  YEARLY
+}
+
+enum Currency {
+  USD
+  EUR
+  GBP
+  CAD
+  AUD
+}
+
+// ============================================
+// Models
+// ============================================
+
 model User {
-  id        String   @id @default(uuid())
-  username  String
-  email     String   @unique
-  isEmailVerified Boolean @default(false)
-  phone String? @unique
-  isPhoneVerified Boolean @default(false)
-  password String
-  role Role @default(USER)
-  refreshToken String?
-  platformId String?
-  signupMethod SignupMethod @default(EMAIL)
-  isActive Boolean @default(true)
-  isDeleted Boolean @default(false)
-  deletedAt DateTime?
+  id              String       @id @default(uuid())
+  username        String
+  email           String       @unique
+  isEmailVerified Boolean      @default(false)
+  phone           String?      @unique
+  isPhoneVerified Boolean      @default(false)
+  otpCode         String?
+  otpExpiresAt    DateTime?
+  profilePicture  String?
+  password        String
+  role            Role         @default(USER)
+  userType        UserType     @default(REGISTERED)
+  refreshToken    String?
+  platformId      String?
+  signupMethod    SignupMethod @default(EMAIL)
+  isActive        Boolean      @default(true)
+  isDeleted       Boolean      @default(false)
+  deletedAt       DateTime?
+
+  // Stripe integration
+  stripeCustomerId String? @unique
+  isSubscribed Boolean @default(false)
+
+  // Relations
+  subscriptions Subscription[]
+  payments      Payment[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([stripeCustomerId])
+  @@index([userType])
+}
+
+model SubscriptionPlan {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  // Pricing (in cents)
+  priceMonthly Int // Price in cents for monthly plan
+  priceYearly  Int // Price in cents for yearly plan
+
+  // Features
+  features Json? // Store plan features as JSON
+
+  // Trial settings
+  trialDays Int @default(14) // 14 days trial
+
+  // Status
+  isActive Boolean @default(true)
+
+  // Metadata
+  metadata Json? // Additional metadata (Stripe price IDs, etc.)
+
+  // Relations
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model Subscription {
+  id String @id @default(uuid())
+
+  // Relations
+  userId String
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId String
+  plan   SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  // Subscription details
+  status   SubscriptionStatus @default(TRIALING)
+  interval PlanInterval       @default(MONTHLY) // MONTHLY or YEARLY
+
+  // Billing period
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  // Trial period
+  trialStart    DateTime?
+  trialEnd      DateTime?
+  isTrialActive Boolean   @default(true)
+
+  // Cancellation
+  cancelAtPeriodEnd Boolean   @default(false)
+  canceledAt        DateTime?
+  cancelReason      String?
+
+  // Stripe integration
+  stripeSubscriptionId String? @unique
+  stripePriceId        String? // Stripe price ID for the plan interval
+  stripeProductId      String? // Stripe product ID
+
+  // Webhook tracking
+  stripeLatestInvoiceId       String?
+  stripeLatestPaymentIntentId String?
+
+  // Metadata
+  metadata Json? // Additional subscription metadata
+
+  // Relations
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([stripeSubscriptionId])
+  @@index([currentPeriodEnd])
+  @@index([trialEnd])
+}
+
+model Payment {
+  id String @id @default(uuid())
+
+  // Relations
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  // Payment details
+  amount   Int // Amount in cents
+  currency Currency      @default(USD)
+  status   PaymentStatus @default(PENDING)
+
+  // Stripe integration
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String? @unique
+  stripeInvoiceId       String?
+
+  // Payment method
+  paymentMethod String? // e.g., "card", "bank_transfer"
+  last4         String? // Last 4 digits of card
+  brand         String? // Card brand (visa, mastercard, etc.)
+
+  // Failure details
+  failureCode    String?
+  failureMessage String?
+
+  // Refund information
+  refundedAmount Int?      @default(0)
+  refundedAt     DateTime?
+
+  // Metadata
+  metadata Json? // Additional payment metadata
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([stripePaymentIntentId])
+  @@index([stripeChargeId])
+  @@index([createdAt])
 }

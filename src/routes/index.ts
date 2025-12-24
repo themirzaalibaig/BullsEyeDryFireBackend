@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Res } from '@/utils';
 import { env } from '@/config';
-
+import { authRouter } from '@/features/auth/route/auth.routes';
 export const router = Router();
 
 // Health check
@@ -21,3 +21,4 @@ router.get('/health', (req, res) => {
 });
 
 // Feature routes
+router.use('/auth', authRouter);

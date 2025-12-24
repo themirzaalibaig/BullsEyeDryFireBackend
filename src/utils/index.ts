@@ -18,3 +18,4 @@ export * from './email-templates.util';
 // export * from './auth.util';
 export * from './delay.util';
 export * from './date.util';
+export * from './firebase.util';

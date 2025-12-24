@@ -7,3 +7,4 @@ export * from './cloudinary.config';
 export * from './aws.config';
 export * from './cors.config';
 export * from './prisma.config';
+export * from './firebase.config';

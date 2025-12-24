@@ -25,23 +25,27 @@ export class AppError extends Error {
     return new AppError(message, HttpStatusCode.BAD_REQUEST, errors);
   }
 
-  static unauthorized(message = 'Unauthorized access'): AppError {
-    return new AppError(message, HttpStatusCode.UNAUTHORIZED);
+  static unauthorized(message = 'Unauthorized access', errors?: ValidationError[]): AppError {
+    return new AppError(message, HttpStatusCode.UNAUTHORIZED, errors);
   }
 
-  static forbidden(message = 'Access forbidden'): AppError {
-    return new AppError(message, HttpStatusCode.FORBIDDEN);
+  static forbidden(message = 'Access forbidden', errors?: ValidationError[]): AppError {
+    return new AppError(message, HttpStatusCode.FORBIDDEN, errors);
   }
 
-  static notFound(message = 'Resource not found'): AppError {
-    return new AppError(message, HttpStatusCode.NOT_FOUND);
+  static notFound(message = 'Resource not found', errors?: ValidationError[]): AppError {
+    return new AppError(message, HttpStatusCode.NOT_FOUND, errors);
   }
 
-  static conflict(message = 'Resource conflict'): AppError {
-    return new AppError(message, HttpStatusCode.CONFLICT);
+  static conflict(message = 'Resource conflict', errors?: ValidationError[]): AppError {
+    return new AppError(message, HttpStatusCode.CONFLICT, errors);
   }
 
   static validation(message = 'Validation failed', errors?: ValidationError[]): AppError {
     return new AppError(message, HttpStatusCode.UNPROCESSABLE_ENTITY, errors);
+  }
+
+  static internalError(message = 'Internal server error', errors?: ValidationError[]): AppError {
+    return new AppError(message, HttpStatusCode.INTERNAL_SERVER_ERROR, errors);
   }
 }
